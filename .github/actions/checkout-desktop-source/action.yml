@@ -1,0 +1,45 @@
+name: Checkout GimiMind source
+description: Fetch an exact Gitee source commit without persisting credentials
+inputs:
+  commit:
+    description: Full source commit SHA
+    required: true
+  username:
+    description: Gitee username for a private repository
+    required: false
+  token:
+    description: Read-only Gitee token for a private repository
+    required: false
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SOURCE_COMMIT: ${{ inputs.commit }}
+        GITEE_USERNAME: ${{ inputs.username }}
+        GITEE_TOKEN: ${{ inputs.token }}
+      run: |
+        node <<'NODE'
+        const { execFileSync } = require('node:child_process')
+        const commit = process.env.SOURCE_COMMIT
+        if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('Source commit must be a full Git SHA')
+        const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+        if (env.GITEE_TOKEN) {
+          if (!env.GITEE_USERNAME) throw new Error('GITEE_USERNAME is required for private source access')
+          const credential = Buffer.from(`${env.GITEE_USERNAME}:${env.GITEE_TOKEN}`).toString('base64')
+          console.log(`::add-mask::${credential}`)
+          env.GIT_CONFIG_COUNT = '1'
+          env.GIT_CONFIG_KEY_0 = 'http.https://gitee.com/.extraheader'
+          env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${credential}`
+        }
+        delete env.GITEE_USERNAME
+        delete env.GITEE_TOKEN
+        function git(args) {
+          return execFileSync('git', args, { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim()
+        }
+        git(['init', 'source'])
+        git(['-C', 'source', 'remote', 'add', 'origin', 'https://gitee.com/zheng_xuan520/x-mind-map.git'])
+        git(['-C', 'source', 'fetch', '--depth=1', 'origin', commit])
+        git(['-C', 'source', 'checkout', '--detach', 'FETCH_HEAD'])
+        if (git(['-C', 'source', 'rev-parse', 'HEAD']) !== commit) throw new Error('Source commit mismatch')
+        NODE

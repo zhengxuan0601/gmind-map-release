@@ -1,0 +1,36 @@
+name: Desktop unsigned packages
+on:
+  workflow_dispatch:
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            target: --win --x64
+          - os: ubuntu-22.04
+            target: --linux --x64
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:typecheck
+      - run: npm run desktop:build
+      - run: npm run build
+      - run: npm run build:ssr
+      - name: Package unsigned evaluation artifacts
+        run: npx electron-builder --config electron-builder.yml ${{ matrix.target }} --publish never
+      - name: Generate dependency manifest
+        shell: bash
+        run: npm sbom --sbom-format cyclonedx > release/sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-desktop-${{ matrix.os }}
+          path: release/

@@ -1,0 +1,135 @@
+name: Desktop release
+run-name: GimiMind v${{ inputs.version }} - ${{ inputs.source_commit }}
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from source package.json (x.y.z)
+        required: true
+        type: string
+      source_commit:
+        description: Full 40-character commit SHA already pushed to Gitee
+        required: true
+        type: string
+      notes:
+        description: Optional release notes
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: desktop-release-${{ inputs.version }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+      - uses: actions/github-script@v7
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        with:
+          script: |
+            if (context.repo.owner !== 'zhengxuan0601' || context.repo.repo !== 'gimimind-release') throw new Error('Install this workflow in zhengxuan0601/gimimind-release')
+            if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(process.env.RELEASE_VERSION)) throw new Error('Invalid version')
+            if (!/^[a-f0-9]{40}$/.test(process.env.SOURCE_COMMIT)) throw new Error('Invalid source commit')
+            const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 })
+            const release = releases.find(item => item.tag_name === `v${process.env.RELEASE_VERSION}`)
+            if (release && !release.draft) throw new Error('Version is already published; bump the source version first')
+            if (release && !release.body?.includes(`<!-- gimimind-source: ${process.env.SOURCE_COMMIT} -->`)) throw new Error('Draft belongs to a different source commit')
+      - uses: ./.github/actions/checkout-desktop-source
+        with:
+          commit: ${{ inputs.source_commit }}
+          username: ${{ secrets.GITEE_USERNAME }}
+          token: ${{ secrets.GITEE_TOKEN }}
+      - name: Verify source version and publishing support
+        working-directory: source
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          node -e "const fs = require('node:fs'); if (require('./package.json').version !== process.env.RELEASE_VERSION) throw new Error('Source version mismatch'); fs.accessSync('scripts/desktop-release.cjs')"
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            label: win-x64
+            target: --win nsis --x64
+            artifact: GimiMind-${{ inputs.version }}-win-x64.exe*
+          - os: ubuntu-24.04
+            label: linux-x64
+            target: --linux AppImage --x64
+            artifact: GimiMind-${{ inputs.version }}-linux-x64.AppImage
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+      - uses: ./.github/actions/checkout-desktop-source
+        with:
+          commit: ${{ inputs.source_commit }}
+          username: ${{ secrets.GITEE_USERNAME }}
+          token: ${{ secrets.GITEE_TOKEN }}
+      - name: Install dependencies
+        working-directory: source
+        run: npm ci
+      - name: Typecheck Electron
+        working-directory: source
+        run: npm run desktop:typecheck
+      - name: Build Electron
+        working-directory: source
+        run: npm run desktop:build
+      - name: Package desktop application
+        working-directory: source
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: node node_modules/electron-builder/cli.js --config electron-builder.yml ${{ matrix.target }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.label }}
+          path: source/release/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+      - uses: ./.github/actions/checkout-desktop-source
+        with:
+          commit: ${{ inputs.source_commit }}
+          username: ${{ secrets.GITEE_USERNAME }}
+          token: ${{ secrets.GITEE_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: assets
+          merge-multiple: true
+      - name: Upload complete release to draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GMIND_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          GMIND_RELEASE_VERSION: ${{ inputs.version }}
+          GMIND_RELEASE_NOTES: ${{ inputs.notes }}
+        run: node source/scripts/desktop-release.cjs --upload-only --artifacts-dir ../assets
