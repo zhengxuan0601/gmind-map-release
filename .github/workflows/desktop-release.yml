@@ -37,7 +37,7 @@ jobs:
           SOURCE_COMMIT: ${{ inputs.source_commit }}
         with:
           script: |
-            if (context.repo.owner !== 'zhengxuan0601' || context.repo.repo !== 'gimimind-release') throw new Error('Install this workflow in zhengxuan0601/gimimind-release')
+            if (context.repo.owner !== 'zhengxuan0601' || context.repo.repo !== 'gimimind-release') throw new Error('Install this workflow in zhengxuan0601/gmind-map-release')
             if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(process.env.RELEASE_VERSION)) throw new Error('Invalid version')
             if (!/^[a-f0-9]{40}$/.test(process.env.SOURCE_COMMIT)) throw new Error('Invalid source commit')
             const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 })
