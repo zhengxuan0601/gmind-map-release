@@ -68,7 +68,7 @@ jobs:
           - os: ubuntu-24.04
             label: linux-x64
             target: --linux AppImage --x64
-            artifact: GimiMind-${{ inputs.version }}-linux-x64.AppImage
+            artifact: GimiMind-${{ inputs.version }}-linux-x86_64.AppImage
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
