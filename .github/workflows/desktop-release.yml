@@ -65,10 +65,12 @@ jobs:
             label: win-x64
             target: --win nsis --x64
             artifact: GimiMind-${{ inputs.version }}-win-x64.exe*
+            metadata: latest.yml
           - os: ubuntu-24.04
             label: linux-x64
             target: --linux AppImage --x64
             artifact: GimiMind-${{ inputs.version }}-linux-x86_64.AppImage
+            metadata: latest-linux.yml
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -100,7 +102,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.label }}
-          path: source/release/${{ matrix.artifact }}
+          path: |
+            source/release/${{ matrix.artifact }}
+            source/release/${{ matrix.metadata }}
           if-no-files-found: error
           retention-days: 7
   publish:
